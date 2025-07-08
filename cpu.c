@@ -21,7 +21,8 @@ void nop(CPU *cpu) { cpu->PC++; };
 void stop_n8(CPU *cpu) {};
 
 void jr_nz_e8(CPU *cpu) {
-  if ((cpu->HL >> 15) == 1) {
+  uint8_t z_flag = cpu->AF & 0x0080;
+  if (z_flag == 1) {
     int8_t value = (int8_t)fetch_byte(cpu);
     cpu->PC += value;
   }
@@ -37,9 +38,9 @@ void ld_sp_n16(CPU *cpu) {
 };
 
 void ld_a_n8(CPU *cpu) {
-  uint16_t value = fetch_byte(cpu) << 8;
-  uint16_t f_reg = cpu->AF << 8;
-  cpu->AF = value | f_reg;
+  uint8_t value = fetch_byte(cpu);
+  uint8_t f_reg = cpu->AF & 0x00FF;
+  cpu->AF = (value << 8) | f_reg;
 }
 
 void ldh_a8_a(CPU *cpu) {
