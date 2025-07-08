@@ -1,3 +1,4 @@
+#include "cpu.h"
 #include <fcntl.h>
 #include <inttypes.h>
 #include <stdint.h>

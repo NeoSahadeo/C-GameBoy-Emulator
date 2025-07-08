@@ -3,6 +3,17 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <sys/types.h>
+
+#define FLAG_Z 0x80
+#define FLAG_N 0x40
+#define FLAG_H 0x20
+#define FLAG_C 0x10
+#define FLAG_ALL 0xF0
+#define Z_POS 7
+#define N_POS 6
+#define H_POS 5
+#define C_POS 4
 
 uint8_t fetch_byte(CPU *cpu) { return cpu->memory[cpu->PC++]; }
 
@@ -21,20 +32,33 @@ void not_implemented(CPU *cpu) {
   exit(EXIT_FAILURE);
 }
 
+uint8_t get_first_reg(uint16_t reg) { return reg >> 8; }
+uint8_t get_last_reg(uint16_t reg) { return reg & 0x00FF; }
+
+uint8_t get_z_flag(uint8_t f_reg) { return f_reg & 0x80 >> Z_POS; };
+uint8_t get_n_flag(uint8_t f_reg) { return f_reg & 0x40 >> N_POS; };
+uint8_t get_h_flag(uint8_t f_reg) { return f_reg & 0x20 >> H_POS; };
+uint8_t get_c_flag(uint8_t f_reg) { return f_reg & 0x10 >> C_POS; };
+
+void update_flags(CPU *cpu, uint8_t mask, uint8_t flags) {
+  uint8_t f_reg = get_last_reg(cpu->AF);
+  // Apply the bit masks to update selected flags only
+  f_reg = (f_reg & ~mask) | (flags & mask);
+  cpu->AF = cpu->AF & 0xFF00 | f_reg;
+}
+
 void nop(CPU *cpu) {};
 
 void stop_n8(CPU *cpu) {};
 
 void jr_nz_e8(CPU *cpu) {
-  uint8_t z_flag = cpu->AF & 0x0080;
+  uint8_t f_reg = get_last_reg(cpu->AF);
+  uint8_t z_flag = get_z_flag(f_reg);
+
   if (z_flag == 1) {
     int8_t value = (int8_t)fetch_byte(cpu);
     cpu->PC += value;
   }
-};
-
-void jr_nc_e8(CPU *cpu) {
-
 };
 
 void ld_sp_n16(CPU *cpu) {
@@ -44,19 +68,19 @@ void ld_sp_n16(CPU *cpu) {
 
 void ld_a_n8(CPU *cpu) {
   uint8_t value = fetch_byte(cpu);
-  uint8_t f_reg = cpu->AF & 0x00FF;
-  cpu->AF = (value << 8) | f_reg;
+  uint8_t f_reg = get_last_reg(cpu->AF);
+  cpu->AF = value << 8 | f_reg;
 }
 
 void ldh_a8_a(CPU *cpu) {
   uint8_t value = fetch_byte(cpu);
-  cpu->memory[0xFF00 + value] = (uint8_t)(cpu->AF >> 8);
+  cpu->memory[0xFF00 + value] = get_last_reg(cpu->AF);
 }
 
 void xor_a_a(CPU *cpu) {
   // Set Z flag and reset rest
-  uint16_t a_reg = cpu->AF & 0xFF00;
-  cpu->AF = a_reg | 0x80;
+  uint8_t a_reg = get_first_reg(cpu->AF);
+  cpu->AF = a_reg << 8 | FLAG_Z;
 }
 
 void ld_hl_n16(CPU *cpu) {
@@ -65,30 +89,170 @@ void ld_hl_n16(CPU *cpu) {
 }
 
 void ld_hld_a(CPU *cpu) {
-  uint8_t a_reg = (uint8_t)(cpu->AF >> 8);
+  uint8_t a_reg = get_first_reg(cpu->AF);
   cpu->memory[cpu->HL] = a_reg;
   cpu->HL--;
 }
 
 void bit_7_h(CPU *cpu) {
-  uint8_t h_reg = (cpu->HL >> 8);
+  uint8_t f_reg = get_last_reg(cpu->AF);
+  uint8_t h_reg = get_first_reg(cpu->HL);
 
-  uint8_t z_flag = h_reg >> 7 & 0 ? 0x80 : 0x00;
-
-  uint8_t f_reg = cpu->AF & 0x00FF;
-  uint8_t a_reg = cpu->AF & 0xFF00;
-
-  uint8_t c_flag = f_reg & 0x10;
-  uint8_t n_flag = f_reg & 0x20;
-  uint8_t h_flag = f_reg & 0x40;
-
-  f_reg = z_flag | h_flag | n_flag | c_flag;
-  cpu->AF = a_reg | f_reg;
+  uint8_t z_flag = (h_reg >> 7 & 1 ? FLAG_Z : 0x00);
+  update_flags(cpu, FLAG_Z, z_flag);
 }
 
 void ei(CPU *cpu) {
   // Set IME flag at 0xFFFF
   cpu->memory[0xFFFF] = 1;
+}
+
+void ld_c_n8(CPU *cpu) {
+  uint8_t value = fetch_byte(cpu);
+  uint8_t b_reg = get_first_reg(cpu->BC);
+  cpu->BC = b_reg | value;
+}
+
+void ldh_c_a(CPU *cpu) {
+  uint8_t a_reg = get_first_reg(cpu->AF);
+  uint8_t c_reg = get_last_reg(cpu->BC);
+  cpu->memory[0xFF00 + c_reg] = a_reg;
+}
+
+void inc_c(CPU *cpu) {
+  uint8_t b_reg = get_first_reg(cpu->BC);
+  uint8_t c_reg = get_last_reg(cpu->BC);
+  uint8_t h_flag =
+      (c_reg & 0x0F) + 1 > 0x0F ? 1 << H_POS : 0 << H_POS; // overflow check
+  update_flags(cpu, FLAG_H, h_flag);
+  c_reg++;
+  cpu->BC = b_reg << 8 | c_reg;
+}
+
+void ld_hl_a(CPU *cpu) {
+  uint8_t a_reg = get_first_reg(cpu->AF);
+  cpu->memory[cpu->HL] = a_reg;
+}
+
+void ld_de_a(CPU *cpu) {
+  uint16_t value = fetch_word(cpu);
+  cpu->DE = value;
+}
+
+void ld_a_de(CPU *cpu) {
+  uint8_t a_reg = get_first_reg(cpu->AF);
+  a_reg = cpu->memory[cpu->DE];
+  cpu->AF = a_reg << 8 | cpu->AF & 0x00FF;
+}
+
+void call_a16(CPU *cpu) {
+  uint16_t value = fetch_word(cpu);
+  uint16_t return_addr = cpu->PC;
+
+  cpu->SP--;
+  cpu->memory[cpu->SP] = return_addr >> 8; // high
+  cpu->SP--;
+  cpu->memory[cpu->SP] = return_addr & 0x00FF; // low
+
+  // implicit n16 jump
+  cpu->PC = value;
+}
+
+void ld_c_a(CPU *cpu) {
+  uint8_t a_reg = get_first_reg(cpu->AF);
+  uint8_t b_reg = get_first_reg(cpu->BC);
+  cpu->BC = b_reg << 8 | a_reg;
+}
+
+void ld_b_n8(CPU *cpu) {
+  uint8_t value = fetch_byte(cpu);
+  uint8_t c_reg = get_last_reg(cpu->BC);
+  cpu->BC = value << 8 | c_reg;
+}
+
+void rl_c(CPU *cpu) {
+  uint8_t f_reg = get_last_reg(cpu->AF);
+  uint8_t c_flag = get_c_flag(f_reg);
+
+  uint8_t c_reg = get_last_reg(cpu->BC);
+  uint8_t bit_7_c = c_reg >> 7;
+
+  // rotate left
+  c_reg = c_reg << 1;
+  c_reg = c_reg & 0xFE | c_flag;
+  c_flag = bit_7_c << C_POS;
+
+  uint8_t z_flag = c_reg == 0 ? FLAG_Z : 0x00;
+  update_flags(cpu, FLAG_Z | FLAG_H | FLAG_N | FLAG_C, z_flag | c_flag);
+
+  cpu->BC = cpu->BC & 0xFF00 | c_reg;
+}
+void rla(CPU *cpu) {
+  uint8_t f_reg = get_last_reg(cpu->AF);
+  uint8_t c_flag = get_c_flag(f_reg);
+  uint8_t a_reg = get_first_reg(cpu->AF);
+
+  uint8_t bit_7_a = a_reg >> 7;
+
+  // rotate left
+  a_reg = a_reg << 1;
+  a_reg = a_reg & 0xFE | c_flag;
+  c_flag = bit_7_a << C_POS;
+
+  update_flags(cpu, FLAG_Z | FLAG_H | FLAG_N | FLAG_C, c_flag);
+  cpu->AF = f_reg << 8 | a_reg;
+}
+
+void pop_bc(CPU *cpu) {
+  uint8_t low = cpu->memory[cpu->SP];
+  cpu->SP++;
+  uint8_t high = cpu->memory[cpu->SP];
+  cpu->SP++;
+
+  cpu->BC = high << 8 | low;
+}
+
+void dec_b(CPU *cpu) {
+  uint8_t b_reg = get_first_reg(cpu->BC);
+  uint8_t bit_4_b = b_reg & 0x10;
+  b_reg--;
+  uint8_t h_flag = (b_reg & 0x10) == bit_4_b ? 0x00 : FLAG_H;
+  uint8_t z_flag = b_reg == 0 ? FLAG_Z : 0x00;
+  update_flags(cpu, FLAG_Z | FLAG_H | FLAG_N, z_flag | h_flag | FLAG_N);
+}
+
+void push_bc(CPU *cpu) {
+  cpu->SP--;
+  cpu->memory[cpu->SP] = cpu->BC >> 8; // High
+  cpu->SP--;
+  cpu->memory[cpu->SP] = cpu->BC & 0x00FF; // Low
+}
+
+void push_af(CPU *cpu) {
+  cpu->SP--;
+  cpu->memory[cpu->SP] = cpu->AF >> 8; // High
+  cpu->SP--;
+  cpu->memory[cpu->SP] = cpu->AF & 0x00FF; // Low
+}
+
+void push_de(CPU *cpu) {
+  cpu->SP--;
+  cpu->memory[cpu->SP] = cpu->DE >> 8; // High
+  cpu->SP--;
+  cpu->memory[cpu->SP] = cpu->DE & 0x00FF; // Low
+}
+
+void push_hl(CPU *cpu) {
+  cpu->SP--;
+  cpu->memory[cpu->SP] = cpu->HL >> 8; // High
+  cpu->SP--;
+  cpu->memory[cpu->SP] = cpu->HL & 0x00FF; // Low
+}
+
+void ld_hli_a(CPU *cpu) {
+  uint8_t a_reg = get_first_reg(cpu->AF);
+  cpu->memory[cpu->HL] = a_reg;
+  cpu->HL++;
 }
 
 special_opcode_function special_opcode_table[256] = {
@@ -109,7 +273,7 @@ special_opcode_function special_opcode_table[256] = {
     [0x0E] = not_implemented, //
     [0x0F] = not_implemented, //
     [0x10] = not_implemented, //
-    [0x11] = not_implemented, //
+    [0x11] = rl_c,            //
     [0x12] = not_implemented, //
     [0x13] = not_implemented, //
     [0x14] = not_implemented, //
@@ -267,7 +431,7 @@ special_opcode_function special_opcode_table[256] = {
     [0xAC] = not_implemented, //
     [0xAD] = not_implemented, //
     [0xAE] = not_implemented, //
-    [0xAF] = not_implemented, //
+    [0xAF] = push_af,         //
     [0xB0] = not_implemented, //
     [0xB1] = not_implemented, //
     [0xB2] = not_implemented, //
@@ -356,28 +520,28 @@ opcode_function opcode_table[256] = {
     [0x02] = not_implemented, //
     [0x03] = not_implemented, //
     [0x04] = not_implemented, //
-    [0x05] = not_implemented, //
-    [0x06] = not_implemented, //
+    [0x05] = dec_b,           //
+    [0x06] = ld_b_n8,         //
     [0x07] = not_implemented, //
     [0x08] = not_implemented, //
     [0x09] = not_implemented, //
     [0x0A] = not_implemented, //
     [0x0B] = not_implemented, //
-    [0x0C] = not_implemented, //
+    [0x0C] = inc_c,           //
     [0x0D] = not_implemented, //
-    [0x0E] = not_implemented, //
+    [0x0E] = ld_c_n8,         //
     [0x0F] = not_implemented, //
     [0x10] = stop_n8,         //
-    [0x11] = not_implemented, //
+    [0x11] = ld_de_a,         //
     [0x12] = not_implemented, //
     [0x13] = not_implemented, //
     [0x14] = not_implemented, //
     [0x15] = not_implemented, //
     [0x16] = not_implemented, //
-    [0x17] = not_implemented, //
+    [0x17] = rla,             //
     [0x18] = not_implemented, //
     [0x19] = not_implemented, //
-    [0x1A] = not_implemented, //
+    [0x1A] = ld_a_de,         //
     [0x1B] = not_implemented, //
     [0x1C] = not_implemented, //
     [0x1D] = not_implemented, //
@@ -385,7 +549,7 @@ opcode_function opcode_table[256] = {
     [0x1F] = not_implemented, //
     [0x20] = jr_nz_e8,        //
     [0x21] = ld_hl_n16,       //
-    [0x22] = not_implemented, //
+    [0x22] = ld_hli_a,        //
     [0x23] = not_implemented, //
     [0x24] = not_implemented, //
     [0x25] = not_implemented, //
@@ -399,7 +563,7 @@ opcode_function opcode_table[256] = {
     [0x2D] = not_implemented, //
     [0x2E] = not_implemented, //
     [0x2F] = not_implemented, //
-    [0x30] = jr_nc_e8,        //
+    [0x30] = not_implemented, //
     [0x31] = ld_sp_n16,       //
     [0x32] = ld_hld_a,        //
     [0x33] = not_implemented, //
@@ -430,7 +594,7 @@ opcode_function opcode_table[256] = {
     [0x4C] = not_implemented, //
     [0x4D] = not_implemented, //
     [0x4E] = not_implemented, //
-    [0x4F] = not_implemented, //
+    [0x4F] = ld_c_a,          //
     [0x50] = not_implemented, //
     [0x51] = not_implemented, //
     [0x52] = not_implemented, //
@@ -470,7 +634,7 @@ opcode_function opcode_table[256] = {
     [0x74] = not_implemented, //
     [0x75] = not_implemented, //
     [0x76] = not_implemented, //
-    [0x77] = not_implemented, //
+    [0x77] = ld_hl_a,         //
     [0x78] = not_implemented, //
     [0x79] = not_implemented, //
     [0x7A] = not_implemented, //
@@ -544,11 +708,11 @@ opcode_function opcode_table[256] = {
     [0xBE] = not_implemented, //
     [0xBF] = not_implemented, //
     [0xC0] = not_implemented, //
-    [0xC1] = not_implemented, //
+    [0xC1] = pop_bc,          //
     [0xC2] = not_implemented, //
     [0xC3] = not_implemented, //
     [0xC4] = not_implemented, //
-    [0xC5] = not_implemented, //
+    [0xC5] = push_bc,         //
     [0xC6] = not_implemented, //
     [0xC7] = not_implemented, //
     [0xC8] = not_implemented, //
@@ -556,7 +720,7 @@ opcode_function opcode_table[256] = {
     [0xCA] = not_implemented, //
     [0xCB] = prefix,          //
     [0xCC] = not_implemented, //
-    [0xCD] = not_implemented, //
+    [0xCD] = call_a16,        //
     [0xCE] = not_implemented, //
     [0xCF] = not_implemented, //
     [0xD0] = not_implemented, //
@@ -564,7 +728,7 @@ opcode_function opcode_table[256] = {
     [0xD2] = not_implemented, //
     [0xD3] = not_implemented, //
     [0xD4] = not_implemented, //
-    [0xD5] = not_implemented, //
+    [0xD5] = push_de,         //
     [0xD6] = not_implemented, //
     [0xD7] = not_implemented, //
     [0xD8] = not_implemented, //
@@ -577,10 +741,10 @@ opcode_function opcode_table[256] = {
     [0xDF] = not_implemented, //
     [0xE0] = ldh_a8_a,        //
     [0xE1] = not_implemented, //
-    [0xE2] = not_implemented, //
+    [0xE2] = ldh_c_a,         //
     [0xE3] = not_implemented, //
     [0xE4] = not_implemented, //
-    [0xE5] = not_implemented, //
+    [0xE5] = push_hl,         //
     [0xE6] = not_implemented, //
     [0xE7] = not_implemented, //
     [0xE8] = not_implemented, //
@@ -596,7 +760,7 @@ opcode_function opcode_table[256] = {
     [0xF2] = not_implemented, //
     [0xF3] = not_implemented, //
     [0xF4] = not_implemented, //
-    [0xF5] = not_implemented, //
+    [0xF5] = push_af,         //
     [0xF6] = not_implemented, //
     [0xF7] = not_implemented, //
     [0xF8] = not_implemented, //
