@@ -10,7 +10,9 @@
 #include <time.h>
 #include <unistd.h>
 
-#define TARGET_FPS 3
+#define TARGET_FPS 60
+
+// printf("X=> %04x \n", cpu->AF);
 
 // Nanoseconds per frame
 #define FRAME_TIME_NS (1000000000 / TARGET_FPS)
