@@ -55,7 +55,7 @@ void game_loop(CPU *cpu) {
 
 int main(void) {
   CPU cpu;
-  const char *filename = "./roms/sgb_boot.bin";
+  const char *filename = "./roms/dmg_boot.bin";
   size_t file_size = 0;
 
   uint8_t *memory = calloc(65536, sizeof(uint8_t)); // 64KiB
@@ -64,13 +64,13 @@ int main(void) {
   initialize_cpu(&cpu, memory);
   read_to_buffer(filename, &cpu.memory, &file_size);
 
-  for (int x = 0; x < 10; x++) {
-  }
-
   printf("\n");
   printf("BOOT ROM: \n");
   for (size_t i = 0; i < file_size; i++) {
     printf("%02x ", cpu.memory[i]);
+
+    if ((i + 1) % 16 == 0)
+      printf("\n");
   }
   printf("\n");
 
