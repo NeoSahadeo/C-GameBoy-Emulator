@@ -1,7 +1,7 @@
 CC = clang
 CFLAGS = -g
 
-SRCS = main.c utils.c cpu.c screen.c
+SRCS = ./src/main.c ./src/utils.c ./src/cpu.c ./src/screen.c
 TARGET = main
 
 all: build-all

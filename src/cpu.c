@@ -79,8 +79,7 @@ void ldh_a8_a(CPU *cpu) {
 
 void xor_a_a(CPU *cpu) {
   // Set Z flag and reset rest
-  uint8_t a_reg = get_first_reg(cpu->AF);
-  cpu->AF = a_reg << 8 | FLAG_Z;
+  update_flags(cpu, FLAG_ALL, FLAG_Z);
 }
 
 void ld_hl_n16(CPU *cpu) {
@@ -122,11 +121,79 @@ void ldh_c_a(CPU *cpu) {
 void inc_c(CPU *cpu) {
   uint8_t b_reg = get_first_reg(cpu->BC);
   uint8_t c_reg = get_last_reg(cpu->BC);
-  uint8_t h_flag =
-      (c_reg & 0x0F) + 1 > 0x0F ? 1 << H_POS : 0 << H_POS; // overflow check
-  update_flags(cpu, FLAG_H, h_flag);
+
+  uint8_t h_flag = ((((c_reg & 0x0F) + 0x01) & 0x10) == 0x10) << H_POS;
+
   c_reg++;
+  uint8_t z_flag = c_reg == 0 ? FLAG_Z : 0x00;
+
+  update_flags(cpu, FLAG_H | FLAG_Z | FLAG_N, h_flag | z_flag);
   cpu->BC = b_reg << 8 | c_reg;
+}
+
+void inc_h(CPU *cpu) {
+  uint8_t h_reg = get_first_reg(cpu->HL);
+  uint8_t l_reg = get_last_reg(cpu->HL);
+
+  uint8_t h_flag = ((((h_reg & 0x0F) + 0x01) & 0x10) == 0x10) << H_POS;
+
+  h_reg++;
+  uint8_t z_flag = h_reg == 0 ? FLAG_Z : 0x00;
+
+  update_flags(cpu, FLAG_H | FLAG_Z | FLAG_N, h_flag | z_flag);
+  cpu->BC = h_reg << 8 | l_reg;
+}
+
+void inc_d(CPU *cpu) {
+  uint8_t d_reg = get_first_reg(cpu->DE);
+  uint8_t e_reg = get_last_reg(cpu->DE);
+
+  uint8_t h_flag = ((((d_reg & 0x0F) + 0x01) & 0x10) == 0x10) << H_POS;
+
+  d_reg++;
+  uint8_t z_flag = d_reg == 0 ? FLAG_Z : 0x00;
+
+  update_flags(cpu, FLAG_H | FLAG_Z | FLAG_N, h_flag | z_flag);
+  cpu->BC = d_reg << 8 | e_reg;
+}
+
+void inc_e(CPU *cpu) {
+  uint8_t d_reg = get_first_reg(cpu->DE);
+  uint8_t e_reg = get_last_reg(cpu->DE);
+
+  uint8_t h_flag = ((((e_reg & 0x0F) + 0x01) & 0x10) == 0x10) << H_POS;
+
+  e_reg++;
+  uint8_t z_flag = e_reg == 0 ? FLAG_Z : 0x00;
+
+  update_flags(cpu, FLAG_H | FLAG_Z | FLAG_N, h_flag | z_flag);
+  cpu->BC = d_reg << 8 | e_reg;
+}
+
+void inc_b(CPU *cpu) {
+  uint8_t b_reg = get_first_reg(cpu->BC);
+  uint8_t c_reg = get_last_reg(cpu->BC);
+
+  uint8_t h_flag = ((((b_reg & 0x0F) + 0x01) & 0x10) == 0x10) << H_POS;
+
+  b_reg++;
+  uint8_t z_flag = b_reg == 0 ? FLAG_Z : 0x00;
+
+  update_flags(cpu, FLAG_H | FLAG_Z | FLAG_N, h_flag | z_flag);
+  cpu->BC = c_reg << 8 | c_reg;
+}
+
+void inc_l(CPU *cpu) {
+  uint8_t h_reg = get_first_reg(cpu->HL);
+  uint8_t l_reg = get_last_reg(cpu->HL);
+
+  uint8_t h_flag = ((((l_reg & 0x0F) + 0x01) & 0x10) == 0x10) << H_POS;
+
+  l_reg++;
+  uint8_t z_flag = l_reg == 0 ? FLAG_Z : 0x00;
+
+  update_flags(cpu, FLAG_H | FLAG_Z | FLAG_N, h_flag | z_flag);
+  cpu->BC = h_reg << 8 | l_reg;
 }
 
 void ld_hl_a(CPU *cpu) {
@@ -253,6 +320,24 @@ void ld_hli_a(CPU *cpu) {
   uint8_t a_reg = get_first_reg(cpu->AF);
   cpu->memory[cpu->HL] = a_reg;
   cpu->HL++;
+}
+
+void inc_hl(CPU *cpu) { cpu->HL++; }
+void inc_bc(CPU *cpu) { cpu->BC++; }
+void inc_de(CPU *cpu) { cpu->DE++; }
+void inc_sp(CPU *cpu) { cpu->SP++; }
+
+void dec_hl(CPU *cpu) { cpu->HL--; }
+void dec_bc(CPU *cpu) { cpu->BC--; }
+void dec_de(CPU *cpu) { cpu->DE--; }
+void dec_sp(CPU *cpu) { cpu->SP--; }
+
+void ret(CPU *cpu) {
+  uint8_t low = cpu->memory[cpu->SP];
+  cpu->SP++;
+  uint8_t high = cpu->memory[cpu->SP];
+  cpu->SP++;
+  cpu->PC = high << 8 | low;
 }
 
 special_opcode_function special_opcode_table[256] = {
@@ -550,7 +635,7 @@ opcode_function opcode_table[256] = {
     [0x20] = jr_nz_e8,        //
     [0x21] = ld_hl_n16,       //
     [0x22] = ld_hli_a,        //
-    [0x23] = not_implemented, //
+    [0x23] = inc_hl,          //
     [0x24] = not_implemented, //
     [0x25] = not_implemented, //
     [0x26] = not_implemented, //
@@ -716,7 +801,7 @@ opcode_function opcode_table[256] = {
     [0xC6] = not_implemented, //
     [0xC7] = not_implemented, //
     [0xC8] = not_implemented, //
-    [0xC9] = not_implemented, //
+    [0xC9] = ret,             //
     [0xCA] = not_implemented, //
     [0xCB] = prefix,          //
     [0xCC] = not_implemented, //
